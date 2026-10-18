@@ -8,21 +8,15 @@ import glob
 st.set_page_config(page_title="Sales Analytics & Prediction", layout="wide")
 
 # ==========================================
-# 1. DIRECT FILE PATHS (Aapki file ke mutabiq)
+# 1. DIRECT FILE PATHS
 # ==========================================
 CSV_PATH = 'src/sales_data.csv' 
-
-# Model ka path bhi check kar lein (agar 'src' folder mein hai toh yahan likhein)
-# Agar model ka naam kuch aur hai (jaise model.pkl), toh use yahan badal dein
 MODEL_PATHS = ['src/model.pkl', 'src/random_forest.pkl', 'src/rf_model.pkl', 'model.pkl'] 
 
 @st.cache_data
 def load_data():
-    # Pehle exact path check karega
     if os.path.exists(CSV_PATH):
         return pd.read_csv(CSV_PATH)
-    
-    # Agar wahan nahi mila, toh poore folder mein dhoondhega
     files = glob.glob('**/*.csv', recursive=True)
     if files:
         return pd.read_csv(files[0])
@@ -33,8 +27,6 @@ def load_model():
     for path in MODEL_PATHS:
         if os.path.exists(path):
             return joblib.load(path)
-    
-    # Agar upar wale paths par nahi mila, toh poore folder mein dhoondhega
     files = glob.glob('**/*.pkl', recursive=True) + glob.glob('**/*.joblib', recursive=True)
     if files:
         return joblib.load(files[0])
@@ -50,7 +42,7 @@ st.title("📊 Sales Performance Analytics & Profit Prediction")
 st.write("Welcome to the interactive dashboard!")
 
 if df is None:
-    st.error(f"⚠️ Dataset nahi mila! Humne '{CSV_PATH}' dhoondha lekin nahi mila. Please check karein ke file ka naam aur path sahi hai.")
+    st.error(f"⚠️ Dataset nahi mila! Check karein ke file '{CSV_PATH}' par mojood hai.")
     st.stop()
 
 st.subheader("Dataset Preview")
@@ -59,7 +51,6 @@ st.dataframe(df.head(10))
 st.subheader("Key Metrics")
 col1, col2, col3 = st.columns(3)
 
-# Metrics (Yahan column names apne dataset ke mutabiq check kar lein)
 total_revenue = df['Total_Sale'].sum() if 'Total_Sale' in df.columns else 0
 total_profit = df['Profit'].sum() if 'Profit' in df.columns else 0
 total_orders = df['Order_ID'].nunique() if 'Order_ID' in df.columns else len(df)
@@ -87,29 +78,29 @@ else:
         unit_price = st.number_input("Unit Price ($)", min_value=1.0, value=100.0, step=1.0)
         
     with col2:
-        countries = df['Country'].unique().tolist() if 'Country' in df.columns else ["Canada", "Australia", "USA"]
+        countries = df['Country'].dropna().astype(str).unique().tolist() if 'Country' in df.columns else ["Canada", "Australia", "USA"]
         country = st.selectbox("Country", countries)
         
-        categories = df['Product_Category'].unique().tolist() if 'Product_Category' in df.columns else ["Accessories", "Bikes"]
+        categories = df['Product_Category'].dropna().astype(str).unique().tolist() if 'Product_Category' in df.columns else ["Accessories", "Bikes"]
         category = st.selectbox("Product Category", categories)
         
     with col3:
-        sub_categories = df['Sub_Category'].unique().tolist() if 'Sub_Category' in df.columns else ["Bike Racks", "Helmets"]
+        sub_categories = df['Sub_Category'].dropna().astype(str).unique().tolist() if 'Sub_Category' in df.columns else ["Bike Racks", "Helmets"]
         sub_category = st.selectbox("Sub Category", sub_categories)
         
-        genders = df['Customer_Gender'].unique().tolist() if 'Customer_Gender' in df.columns else ["M", "F"]
+        genders = df['Customer_Gender'].dropna().astype(str).unique().tolist() if 'Customer_Gender' in df.columns else ["M", "F"]
         gender = st.selectbox("Customer Gender", genders)
 
     if st.button("Calculate Predicted Profit", type="primary"):
         try:
             # User Inputs
             input_dict = {
-                'Quantity': quantity,
-                'Unit_Price': unit_price,
-                'Country': country,
-                'Product_Category': category,
-                'Sub_Category': sub_category,
-                'Customer_Gender': gender
+                'Quantity': int(quantity),
+                'Unit_Price': float(unit_price),
+                'Country': str(country),
+                'Product_Category': str(category),
+                'Sub_Category': str(sub_category),
+                'Customer_Gender': str(gender)
             }
             
             # Model ki required columns
@@ -118,26 +109,40 @@ else:
                                 'Age_Group', 'Delivery_Days', 'Customer_Age', 'Month', 'Payment_Method', 
                                 'Order_Month', 'Discount', 'Quarter', 'Region']
             
-            # Missing columns ko dataset se fill karein
+            # Missing columns ko dataset se fill karein (NaN Error Fix)
             for col in required_columns:
                 if col in df.columns:
-                    if df[col].dtype == 'object' or df[col].dtype == 'string': 
-                        input_dict[col] = df[col].mode()[0] if not df[col].mode().empty else "Unknown"
+                    if df[col].dtype == 'object' or df[col].dtype == 'string' or df[col].dtype == 'category': 
+                        # String data: Mode nikaalein, agar empty ho toh "Unknown"
+                        mode_val = df[col].mode()
+                        input_dict[col] = str(mode_val[0]) if not mode_val.empty else "Unknown"
                     else:
-                        input_dict[col] = df[col].mean()
+                        # Numeric data: Mean nikaalein, agar NaN ho toh 0
+                        mean_val = df[col].mean()
+                        input_dict[col] = float(mean_val) if not pd.isna(mean_val) else 0.0
                 else:
-                    input_dict[col] = 0 
+                    input_dict[col] = 0.0 
             
-            # DataFrame banayein aur model ke order mein set karein
+            # DataFrame banayein
             input_data = pd.DataFrame([input_dict])
             
+            # **NaN Error Fix**: Ensure karein ke koi bhi NaN value na bache
+            input_data = input_data.fillna(0)
+            
+            # Model ke features ke mutabiq reorder karein
             if hasattr(model, 'feature_names_in_'):
                 input_data = input_data[model.feature_names_in_]
             
+            # Sab columns ko numeric/string mein convert karein jesa model expect kar raha hai
+            for col in input_data.columns:
+                if input_data[col].dtype == 'object':
+                    input_data[col] = input_data[col].astype(str)
+
             # Prediction
             prediction = model.predict(input_data)
             
             st.success(f"✅ Estimated Profit: **${prediction[0]:,.2f}**")
+            st.info("Note: Jo details aapne nahi di (Brand, City, Month etc.), unke liye dataset ka average/mode use kiya gaya hai.")
             
         except Exception as e:
             st.error(f"Prediction Error: {e}")
