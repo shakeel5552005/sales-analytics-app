@@ -309,6 +309,7 @@ with tab2:
             st.plotly_chart(fig7, use_container_width=True)
 
 # -------- TAB 3: PREDICTION --------
+# -------- TAB 3: PREDICTION --------
 with tab3:
     st.markdown("### 🔮 Predict Profit (AI-Powered)")
     st.write("Enter the main details below to predict the expected profit.")
@@ -324,20 +325,20 @@ with tab3:
                 unit_price = st.number_input("Unit Price ($)", min_value=1.0, value=120.0, step=1.0)
             
             with col2:
-                countries = df['Country'].dropna().unique().tolist() if 'Country' in df.columns else ["Canada"]
+                countries = df['Country'].dropna().astype(str).unique().tolist() if 'Country' in df.columns else ["Canada"]
                 country = st.selectbox("Country", countries)
                 
-                categories = df['Product_Category'].dropna().unique().tolist() if 'Product_Category' in df.columns else ["Accessories"]
+                categories = df['Product_Category'].dropna().astype(str).unique().tolist() if 'Product_Category' in df.columns else ["Accessories"]
                 category = st.selectbox("Product Category", categories)
                 
-                sub_categories = df['Sub_Category'].dropna().unique().tolist() if 'Sub_Category' in df.columns else ["Bike Racks"]
+                sub_categories = df['Sub_Category'].dropna().astype(str).unique().tolist() if 'Sub_Category' in df.columns else ["Bike Racks"]
                 sub_category = st.selectbox("Sub Category", sub_categories)
             
             with col3:
-                genders = df['Customer_Gender'].dropna().unique().tolist() if 'Customer_Gender' in df.columns else ["M", "F"]
+                genders = df['Customer_Gender'].dropna().astype(str).unique().tolist() if 'Customer_Gender' in df.columns else ["M", "F"]
                 gender = st.selectbox("Customer Gender", genders)
                 
-                states = df['State'].dropna().unique().tolist() if 'State' in df.columns else ["British Columbia"]
+                states = df['State'].dropna().astype(str).unique().tolist() if 'State' in df.columns else ["British Columbia"]
                 state = st.selectbox("State", states)
             
             submitted = st.form_submit_button("🚀 Calculate Predicted Profit")
@@ -348,7 +349,10 @@ with tab3:
                     
                     if hasattr(model, 'feature_names_in_'):
                         for col in model.feature_names_in_:
-                            if col in ['Quantity', 'Order_Quantity']:
+                            # ==========================================
+                            # ZAROORI FIX: Column names ko exactly match karo
+                            # ==========================================
+                            if col == 'Order_Quantity' or col == 'Quantity':
                                 input_dict[col] = quantity
                             elif col == 'Unit_Price':
                                 input_dict[col] = unit_price
@@ -365,9 +369,9 @@ with tab3:
                             elif col in df.columns:
                                 first_val = df[col].iloc[0]
                                 if pd.isna(first_val):
-                                    if df[col].dtype == 'object':
+                                    if df[col].dtype == 'object' or df[col].dtype == 'string':
                                         mode_val = df[col].mode()
-                                        input_dict[col] = mode_val[0] if not mode_val.empty else ""
+                                        input_dict[col] = mode_val[0] if not mode_val.empty else "Unknown"
                                     else:
                                         input_dict[col] = 0
                                 else:
@@ -376,14 +380,38 @@ with tab3:
                                 input_dict[col] = 0
                     
                     input_data = pd.DataFrame([input_dict])
-                    input_data = input_data.fillna(0)
+                    
+                    # ==========================================
+                    # STRICT TYPE CASTING (NaN aur Type error ke liye)
+                    # ==========================================
+                    text_cols = [
+                        'Age_Group', 'Customer_Gender', 'Country', 'State', 
+                        'Product_Category', 'Sub_Category', 'Product', 'Brand', 
+                        'Region', 'City', 'Payment_Method', 'Salesperson', 
+                        'Delivery_Status', 'Order_Size_Category', 'Month', 
+                        'Day', 'Date', 'Month_Name', 'Day_Name'
+                    ]
                     
                     for col in input_data.columns:
-                        if input_data[col].dtype == 'object':
-                            input_data[col] = input_data[col].astype(str)
+                        if col in text_cols:
+                            input_data[col] = input_data[col].fillna("Unknown").astype(str)
                         else:
                             input_data[col] = pd.to_numeric(input_data[col], errors='coerce').fillna(0)
                     
+                    # Model ke exact order mein set karo
+                    if hasattr(model, 'feature_names_in_'):
+                        input_data = input_data[model.feature_names_in_]
+                    
+                    # ==========================================
+                    # DEBUG: Check karein ke values change ho rahi hain
+                    # ==========================================
+                    with st.expander("🔍 Debug: Input values before prediction"):
+                        st.write(f"**Quantity:** {quantity}")
+                        st.write(f"**Unit Price:** {unit_price}")
+                        st.write("**Model ko jaane wali values (first 15 columns):**")
+                        st.dataframe(input_data.T.head(15))  # Transpose karke dikhate hain
+
+                    # Prediction
                     prediction = model.predict(input_data)
                     st.success(f"✅ Estimated Profit: **${prediction[0]:,.2f}**")
                     st.balloons()
