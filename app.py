@@ -8,42 +8,49 @@ import glob
 st.set_page_config(page_title="Sales Analytics & Prediction", layout="wide")
 
 # ==========================================
-# 1. SMART FILE FINDER
+# 1. DIRECT FILE PATHS (Aapki file ke mutabiq)
 # ==========================================
-def find_file(extension, folder="."):
-    search_paths = [f"{folder}/*{extension}", f"{folder}/src/*{extension}"]
-    for path in search_paths:
-        files = glob.glob(path)
-        if files:
-            return files[0]
-    return None
+CSV_PATH = 'src/sales_data.csv' 
+
+# Model ka path bhi check kar lein (agar 'src' folder mein hai toh yahan likhein)
+# Agar model ka naam kuch aur hai (jaise model.pkl), toh use yahan badal dein
+MODEL_PATHS = ['src/model.pkl', 'src/random_forest.pkl', 'src/rf_model.pkl', 'model.pkl'] 
 
 @st.cache_data
 def load_data():
-    csv_path = find_file('.csv')
-    if csv_path:
-        return pd.read_csv(csv_path)
+    # Pehle exact path check karega
+    if os.path.exists(CSV_PATH):
+        return pd.read_csv(CSV_PATH)
+    
+    # Agar wahan nahi mila, toh poore folder mein dhoondhega
+    files = glob.glob('**/*.csv', recursive=True)
+    if files:
+        return pd.read_csv(files[0])
     return None
 
 @st.cache_resource
 def load_model():
-    model_path = find_file('.pkl')
-    if not model_path: model_path = find_file('.joblib')
-    if model_path:
-        return joblib.load(model_path)
+    for path in MODEL_PATHS:
+        if os.path.exists(path):
+            return joblib.load(path)
+    
+    # Agar upar wale paths par nahi mila, toh poore folder mein dhoondhega
+    files = glob.glob('**/*.pkl', recursive=True) + glob.glob('**/*.joblib', recursive=True)
+    if files:
+        return joblib.load(files[0])
     return None
 
 df = load_data()
 model = load_model()
 
 # ==========================================
-# 2. HEADER
+# 2. HEADER & METRICS
 # ==========================================
 st.title("📊 Sales Performance Analytics & Profit Prediction")
 st.write("Welcome to the interactive dashboard!")
 
 if df is None:
-    st.error("⚠️ Dataset nahi mila! Check karein ke CSV file mojood hai.")
+    st.error(f"⚠️ Dataset nahi mila! Humne '{CSV_PATH}' dhoondha lekin nahi mila. Please check karein ke file ka naam aur path sahi hai.")
     st.stop()
 
 st.subheader("Dataset Preview")
@@ -51,6 +58,8 @@ st.dataframe(df.head(10))
 
 st.subheader("Key Metrics")
 col1, col2, col3 = st.columns(3)
+
+# Metrics (Yahan column names apne dataset ke mutabiq check kar lein)
 total_revenue = df['Total_Sale'].sum() if 'Total_Sale' in df.columns else 0
 total_profit = df['Profit'].sum() if 'Profit' in df.columns else 0
 total_orders = df['Order_ID'].nunique() if 'Order_ID' in df.columns else len(df)
@@ -67,7 +76,7 @@ st.markdown("---")
 st.subheader("🔮 Predict Profit")
 
 if model is None:
-    st.warning("⚠️ Model file nahi mili!")
+    st.warning("⚠️ Model file nahi mili! Pehle 02_model.py run karein.")
 else:
     st.write("Enter the main details below to predict the profit:")
     
@@ -93,7 +102,7 @@ else:
 
     if st.button("Calculate Predicted Profit", type="primary"):
         try:
-            # 1. User ke diye hue inputs
+            # User Inputs
             input_dict = {
                 'Quantity': quantity,
                 'Unit_Price': unit_price,
@@ -103,36 +112,32 @@ else:
                 'Customer_Gender': gender
             }
             
-            # 2. Model ko chahiye ye saare columns (Jo error mein aaye the)
+            # Model ki required columns
             required_columns = ['Brand', 'Day', 'Shipping_Cost', 'Year', 'State', 'Product', 'City', 
                                 'Order_Year', 'Salesperson', 'Order_Size_Category', 'Delivery_Status', 
                                 'Age_Group', 'Delivery_Days', 'Customer_Age', 'Month', 'Payment_Method', 
                                 'Order_Month', 'Discount', 'Quarter', 'Region']
             
-            # 3. Har missing column ke liye dataset se Mode ya Mean uthana
+            # Missing columns ko dataset se fill karein
             for col in required_columns:
                 if col in df.columns:
-                    # Agar text (object) hai toh sab se common value
                     if df[col].dtype == 'object' or df[col].dtype == 'string': 
                         input_dict[col] = df[col].mode()[0] if not df[col].mode().empty else "Unknown"
                     else:
-                        # Agar number hai toh average value
                         input_dict[col] = df[col].mean()
                 else:
-                    # Agar column dataset mein hi nahi hai (Safety ke liye)
                     input_dict[col] = 0 
             
-            # 4. DataFrame banayein aur predict karein
+            # DataFrame banayein aur model ke order mein set karein
             input_data = pd.DataFrame([input_dict])
             
-            # **Zaroori Step:** Model ki feature order ke mutabiq columns sort karein
             if hasattr(model, 'feature_names_in_'):
                 input_data = input_data[model.feature_names_in_]
             
+            # Prediction
             prediction = model.predict(input_data)
             
             st.success(f"✅ Estimated Profit: **${prediction[0]:,.2f}**")
-            st.info("Note: Baaki details (Brand, City, Month, etc.) ke liye dataset ka average/mode use kiya gaya hai.")
             
         except Exception as e:
             st.error(f"Prediction Error: {e}")
