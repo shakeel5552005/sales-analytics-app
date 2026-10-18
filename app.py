@@ -23,7 +23,7 @@ def find_file(extension, folder="."):
 
 @st.cache_data
 def load_data():
-    csv_path = find_file('.csv')
+    csv_path = find_file('data/sales_data.csv')
     if csv_path:
         return pd.read_csv(csv_path)
     return None
